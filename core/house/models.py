@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.db.models.signals import m2m_changed
+from django.dispatch import receiver
 # Create your models here.
 User = get_user_model()
 
@@ -29,16 +31,54 @@ class CartItem(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+# class Order(models.Model):
+#     user = models.ForeignKey(User, on_delete=models.CASCADE)
+#     services = models.ManyToManyField(Service)
+#     total_price = models.DecimalField(max_digits=10, decimal_places=2)
+#     created_at = models.DateTimeField(auto_now_add=True)
+
+#     def save(self, *args, **kwargs):
+#         self.total_price = sum(
+#             service.price for service in self.services.all())
+#         super().save(*args, **kwargs)
 class Order(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     services = models.ManyToManyField(Service)
-    total_price = models.DecimalField(max_digits=10, decimal_places=2)
+    total_price = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        self.total_price = sum(
-            service.price for service in self.services.all())
+        # Auto-calculate total_price before saving
+        if self.pk:  # If order already exists
+            self.total_price = sum(
+                service.price for service in self.services.all())
         super().save(*args, **kwargs)
+
+
+# 🔥 Automatically update total_price when services change in an order
+@receiver(m2m_changed, sender=Order.services.through)
+def update_total_price(sender, instance, action, **kwargs):
+    if action in ["post_add", "post_remove", "post_clear"]:
+        instance.total_price = sum(
+            service.price for service in instance.services.all())
+        instance.save()
+
+
+# 🔥 Auto-create an order when a cart is updated
+@receiver(m2m_changed, sender=Cart.services.through)
+def create_order_from_cart(sender, instance, action, **kwargs):
+    if action in ["post_add", "post_remove", "post_clear"]:
+        # Check if an order already exists for this cart
+        order, created = Order.objects.get_or_create(user=instance.user)
+
+        # Sync services from the cart to the order
+        order.services.set(instance.services.all())
+
+        # Update total price
+        order.total_price = sum(
+            service.price for service in order.services.all())
+        order.save()
 
 
 class Review(models.Model):
