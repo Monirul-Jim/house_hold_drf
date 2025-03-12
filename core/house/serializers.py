@@ -14,12 +14,22 @@ class ServiceSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+# class OrderSerializer(serializers.ModelSerializer):
+#     # total_price = serializers.ReadOnlyField()
+
+#     class Meta:
+#         model = Order
+#         fields = '__all__'
 class OrderSerializer(serializers.ModelSerializer):
-    # total_price = serializers.ReadOnlyField()
+    # Make sure it uses ServiceSerializer
+    services = ServiceSerializer(many=True, read_only=True)
+    total_price = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True)
+    user = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
     class Meta:
         model = Order
-        fields = '__all__'
+        fields = ['id', 'user', 'services', 'total_price', 'created_at']
 
 
 class ReviewSerializer(serializers.ModelSerializer):

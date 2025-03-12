@@ -4,10 +4,10 @@ from rest_framework.routers import DefaultRouter
 from rest_framework import viewsets, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Service, Cart, Order, Review, ClientProfile
+from .models import Service, Cart, Order, Review, ClientProfile, OrderItem
 from .serializers import ServiceSerializer, OrderSerializer, ReviewSerializer, ClientProfileSerializer
 from django.contrib.auth import get_user_model
-
+from rest_framework import serializers
 User = get_user_model()
 
 
@@ -37,13 +37,50 @@ class CartViewSet(viewsets.ViewSet):
         return Response({'message': 'Service removed from cart'})
 
 
+# class OrderViewSet(viewsets.ModelViewSet):
+#     queryset = Order.objects.all()
+#     serializer_class = OrderSerializer
+#     permission_classes = [permissions.IsAuthenticated]
+
+#     def perform_create(self, serializer):
+#         serializer.save(user=self.request.user)
+
+# class OrderViewSet(viewsets.ModelViewSet):
+#     serializer_class = OrderSerializer
+#     permission_classes = [permissions.IsAuthenticated]
+
+#     def get_queryset(self):
+#         return Order.objects.filter(user=self.request.user)
+
+#     def perform_create(self, serializer):
+#         user = self.request.user
+#         cart = Cart.objects.get(user=user)
+#         order = Order.objects.create(user=user, total_price=cart.total_price())
+#         for cart_item in cart.cartitem_set.all():
+#             OrderItem.objects.create(order=order, service=cart_item.service)
+#         cart.services.clear()  # Empty the cart after order placement
+#         return order
 class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.all()
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_queryset(self):
+        # Ensure that only orders for the logged-in user are shown
+        return Order.objects.filter(user=self.request.user)
+
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        user = self.request.user
+
+        # Ensure the user has a cart with services
+        cart = Cart.objects.get(user=user)
+        if cart.cartitem_set.exists():
+            order = serializer.save(user=user, total_price=cart.total_price())
+            for cart_item in cart.cartitem_set.all():
+                OrderItem.objects.create(
+                    order=order, service=cart_item.service)
+            cart.services.clear()  # Clear cart after order placement
+        else:
+            raise serializers.ValidationError("Your cart is empty!")
 
 
 class ReviewViewSet(viewsets.ModelViewSet):

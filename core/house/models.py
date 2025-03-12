@@ -41,44 +41,31 @@ class CartItem(models.Model):
 #         self.total_price = sum(
 #             service.price for service in self.services.all())
 #         super().save(*args, **kwargs)
+
 class Order(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    services = models.ManyToManyField(Service)
+    services = models.ManyToManyField(Service, through='OrderItem')
     total_price = models.DecimalField(
         max_digits=10, decimal_places=2, default=0.00)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Auto-calculate total_price before saving
-        if self.pk:  # If order already exists
-            self.total_price = sum(
-                service.price for service in self.services.all())
-        super().save(*args, **kwargs)
+        """Override save method to calculate total price from the user's cart."""
+        if not self.pk:  # Only when creating a new order
+            cart = Cart.objects.get(user=self.user)
+            self.total_price = cart.total_price()
+            super().save(*args, **kwargs)  # Save order first to get a primary key
+            for cart_item in cart.cartitem_set.all():
+                OrderItem.objects.create(order=self, service=cart_item.service)
+            cart.services.clear()  # Clear the cart after creating an order
+        else:
+            super().save(*args, **kwargs)
 
 
-# 🔥 Automatically update total_price when services change in an order
-@receiver(m2m_changed, sender=Order.services.through)
-def update_total_price(sender, instance, action, **kwargs):
-    if action in ["post_add", "post_remove", "post_clear"]:
-        instance.total_price = sum(
-            service.price for service in instance.services.all())
-        instance.save()
-
-
-# 🔥 Auto-create an order when a cart is updated
-@receiver(m2m_changed, sender=Cart.services.through)
-def create_order_from_cart(sender, instance, action, **kwargs):
-    if action in ["post_add", "post_remove", "post_clear"]:
-        # Check if an order already exists for this cart
-        order, created = Order.objects.get_or_create(user=instance.user)
-
-        # Sync services from the cart to the order
-        order.services.set(instance.services.all())
-
-        # Update total price
-        order.total_price = sum(
-            service.price for service in order.services.all())
-        order.save()
+class OrderItem(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE)
+    service = models.ForeignKey(Service, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class Review(models.Model):
